@@ -26,7 +26,6 @@ import (
 	"github.com/penny-vault/pvbt/data"
 	"github.com/penny-vault/pvbt/engine"
 	"github.com/penny-vault/pvbt/portfolio"
-	"github.com/penny-vault/pvbt/tradecron"
 	"github.com/penny-vault/pvbt/universe"
 )
 
@@ -48,15 +47,7 @@ func (s *RSIMeanReversion) Name() string {
 	return "RSI Mean Reversion"
 }
 
-func (s *RSIMeanReversion) Setup(eng *engine.Engine) {
-	tc, err := tradecron.New("@daily", tradecron.MarketHours{Open: 930, Close: 1600})
-	if err != nil {
-		panic(err)
-	}
-
-	eng.Schedule(tc)
-	eng.SetBenchmark(eng.Asset("VFINX"))
-}
+func (s *RSIMeanReversion) Setup(_ *engine.Engine) {}
 
 func (s *RSIMeanReversion) Describe() engine.StrategyDescription {
 	return engine.StrategyDescription{
@@ -65,10 +56,12 @@ func (s *RSIMeanReversion) Describe() engine.StrategyDescription {
 		Source:      "",
 		Version:     "1.0.0",
 		VersionDate: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC),
+		Schedule:    "@daily",
+		Benchmark:   "VFINX",
 	}
 }
 
-func (s *RSIMeanReversion) Compute(ctx context.Context, eng *engine.Engine, strategyPortfolio portfolio.Portfolio) error {
+func (s *RSIMeanReversion) Compute(ctx context.Context, eng *engine.Engine, strategyPortfolio portfolio.Portfolio, batch *portfolio.Batch) error {
 	// 1. Fetch enough daily price history for RSI calculation.
 	// RSI(2) needs at least 3 price changes plus some warmup for smoothing.
 	// Fetch 30 days to be safe.
@@ -92,9 +85,7 @@ func (s *RSIMeanReversion) Compute(ctx context.Context, eng *engine.Engine, stra
 		return nil
 	}
 
-	ts := eng.CurrentDate().Unix()
-
-	strategyPortfolio.Annotate(ts, "rsi", fmt.Sprintf("%.2f", rsiValue))
+	batch.Annotate("rsi", fmt.Sprintf("%.2f", rsiValue))
 
 	// 3. Decision logic: buy when oversold, sell when overbought, hold otherwise.
 	cashAsset := eng.Asset(s.CashTicker)
@@ -112,12 +103,12 @@ func (s *RSIMeanReversion) Compute(ctx context.Context, eng *engine.Engine, stra
 		justification = fmt.Sprintf("sell: RSI(%.0f)=%.1f > %.0f", float64(s.RSIPeriod), rsiValue, s.SellThreshold)
 	} else {
 		// Hold current position -- return without rebalancing.
-		strategyPortfolio.Annotate(ts, "justification", fmt.Sprintf("hold: RSI(%.0f)=%.1f", float64(s.RSIPeriod), rsiValue))
+		batch.Annotate("justification", fmt.Sprintf("hold: RSI(%.0f)=%.1f", float64(s.RSIPeriod), rsiValue))
 
 		return nil
 	}
 
-	strategyPortfolio.Annotate(ts, "justification", justification)
+	batch.Annotate("justification", justification)
 
 	allocation := portfolio.Allocation{
 		Date:          eng.CurrentDate(),
@@ -125,7 +116,7 @@ func (s *RSIMeanReversion) Compute(ctx context.Context, eng *engine.Engine, stra
 		Justification: justification,
 	}
 
-	if err := strategyPortfolio.RebalanceTo(ctx, allocation); err != nil {
+	if err := batch.RebalanceTo(ctx, allocation); err != nil {
 		return fmt.Errorf("rebalance failed: %w", err)
 	}
 
