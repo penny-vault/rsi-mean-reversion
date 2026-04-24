@@ -2,7 +2,7 @@ module github.com/penny-vault/rsi-mean-reversion
 
 go 1.25.6
 
-require github.com/penny-vault/pvbt v0.7.6
+require github.com/penny-vault/pvbt v0.7.7
 
 require (
 	github.com/NimbleMarkets/ntcharts v0.4.0 // indirect
